@@ -122,7 +122,7 @@ stage('QA') {
 
     // For the master branch, add additional axes to the coverage matrix for Couch 1.6, 2.0
     // and Cloudant Local
-    if (env.BRANCH_NAME == "master") {
+    if (env.BRANCH_NAME == "dockerize-tests") {
         axes.putAll(
                 Couch1_6: {
                     runTestsCalled('couchdb:1.6.1')
