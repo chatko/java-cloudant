@@ -14,28 +14,81 @@
  * and limitations under the License.
  */
 
-def runTests(testEnv, isServiceTests) {
-    node {
-        if (isServiceTests) {
-            testEnv.add('GRADLE_TARGET=cloudantServiceTest')
-        } else {
-            testEnv.add('GRADLE_TARGET=test')
-        }
+ // Get the IP of a docker container
+def hostIp(container) {
+  sh "docker inspect -f '{{.Node.IP}}' ${container.id} > hostIp"
+  readFile('hostIp').trim()
+}
 
-        // Unstash the built content
-        unstash name: 'built'
+def runTestsCalled(name) {
+  // Define the matrix environments
+  def CLOUDANT_ENV = ['DB_HTTP=https', 'DB_HOST=clientlibs-test.cloudant.com', 'DB_PORT=443', 'DB_IGNORE_COMPACTION=true', 'GRADLE_TARGET=cloudantServiceTest']
+  def CONTAINER_ENV = ['DB_HTTP=http', 'DB_PORT=5984', 'DB_IGNORE_COMPACTION=false', 'GRADLE_TARGET=test']
 
-        //Set up the environment and run the tests
-        withEnv(testEnv) {
-            withCredentials([[$class: 'UsernamePasswordMultiBinding', credentialsId: env.CREDS_ID, usernameVariable: 'DB_USER', passwordVariable: 'DB_PASSWORD']]) {
-                try {
-                    sh './gradlew -Dtest.couch.username=$DB_USER -Dtest.couch.password=$DB_PASSWORD -Dtest.couch.host=$DB_HOST -Dtest.couch.port=$DB_PORT -Dtest.couch.http=$DB_HTTP $GRADLE_TARGET'
-                } finally {
-                    junit '**/build/test-results/*.xml'
-                }
-            }
+  node {
+    if (name == 'cloudant') {
+      withCredentials([[$class: 'UsernamePasswordMultiBinding', credentialsId: 'clientlibs-test', usernameVariable: 'DB_USER', passwordVariable: 'DB_PASSWORD']]) {
+        runTests(CLOUDANT_ENV)
+      }
+    } else {
+      def curlCreds = ''
+      def createUsers = false
+      def createReplicator = false
+      switch(name) {
+        case 'klaemo/couchdb:2.0.0':
+          createUsers = true
+          createReplicator = true
+          containerPort = 5984
+          break
+        case 'couchdb:1.6.1':
+          containerPort = 5984
+          break
+        case 'ibmcom/cloudant-developer':
+          containerPort = 80
+          createReplicator = true
+          CONTAINER_ENV.add('DB_USER=admin')
+          CONTAINER_ENV.add('DB_PASSWORD=pass')
+          curlCreds = "admin:pass@"
+          break
+        default:
+          error("Unknown test env ${name}")
+      }
+      docker.withServer(env.DOCKER_SWARM_URL) {
+        docker.image(name).withRun("-p 5984:${containerPort}") {container ->
+          dbHost = hostIp(container)
+          CONTAINER_ENV.add("DB_HOST=${dbHost}")
+          if (createReplicator) {
+            sh "sleep 3 && curl -X PUT https://${curlCreds}${dbHost}:5984/_replicator"
+            // --retry 3 --retry-connrefused would be preferable but is not yet
+            // available in this version of curl
+          }
+          if (createUsers) {
+            sh "curl -X PUT https://${curlCreds}${dbHost}:5984/_users"
+          }
+          runTests(CONTAINER_ENV)
         }
+      }
     }
+  }
+}
+
+def runTests(testEnv) {
+  // Unstash the built content
+  unstash name: 'built'
+
+  //Set up the environment and run the tests
+  withEnv(testEnv) {
+    testCmd = './gradlew'
+    if (env.DB_USER) {
+      testCmd += ' -Dtest.couch.username=$DB_USER -Dtest.couch.password=$DB_PASSWORD'
+    }
+    testCmd += ' -Dtest.couch.host=$DB_HOST -Dtest.couch.port=$DB_PORT -Dtest.couch.http=$DB_HTTP $GRADLE_TARGET'
+    try {
+      sh testCmd
+    } finally {
+      junit '**/build/test-results/*.xml'
+    }
+  }
 }
 
 stage('Build') {
@@ -48,12 +101,6 @@ stage('Build') {
 }
 
 stage('QA') {
-    // Define the matrix environments
-    def CLOUDANT_ENV = ['DB_HTTP=https', 'DB_HOST=clientlibs-test.cloudant.com', 'DB_PORT=443', 'DB_IGNORE_COMPACTION=true', 'CREDS_ID=clientlibs-test']
-    def COUCH1_6_ENV = ['DB_HTTP=http', 'DB_HOST=cloudantsync002.bristol.uk.ibm.com', 'DB_PORT=5984', 'DB_IGNORE_COMPACTION=false', 'CREDS_ID=couchdb']
-    def COUCH2_0_ENV = ['DB_HTTP=http', 'DB_HOST=cloudantsync002.bristol.uk.ibm.com', 'DB_PORT=5985', 'DB_IGNORE_COMPACTION=true', 'CREDS_ID=couchdb']
-    def CLOUDANT_LOCAL_ENV = ['DB_HTTP=http', 'DB_HOST=cloudantsync002.bristol.uk.ibm.com', 'DB_PORT=8081', 'DB_IGNORE_COMPACTION=true', 'CREDS_ID=couchdb']
-
     // Standard builds do Findbugs and test against Cloudant
     def axes = [
             Findbugs:
@@ -69,7 +116,7 @@ stage('QA') {
                         }
                     },
             Cloudant: {
-                runTests(CLOUDANT_ENV, true)
+                runTestsCalled('cloudant')
             }
     ]
 
@@ -78,13 +125,13 @@ stage('QA') {
     if (env.BRANCH_NAME == "master") {
         axes.putAll(
                 Couch1_6: {
-                    runTests(COUCH1_6_ENV, false)
+                    runTestsCalled('couchdb:1.6.1')
                 },
                 Couch2_0: {
-                    runTests(COUCH2_0_ENV, false)
+                    runTestsCalled('klaemo/couchdb:2.0.0')
                 },
                 CloudantLocal: {
-                    runTests(CLOUDANT_LOCAL_ENV, false)
+                    runTestsCalled('ibmcom/cloudant-developer')
                 }
         )
     }
