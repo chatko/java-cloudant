@@ -58,12 +58,12 @@ def runTestsCalled(name) {
           dbHost = hostIp(container)
           CONTAINER_ENV.add("DB_HOST=${dbHost}")
           if (createReplicator) {
-            sh "sleep 3 && curl -X PUT https://${curlCreds}${dbHost}:5984/_replicator"
+            sh "sleep 3 && curl -X PUT http://${curlCreds}${dbHost}:5984/_replicator"
             // --retry 3 --retry-connrefused would be preferable but is not yet
             // available in this version of curl
           }
           if (createUsers) {
-            sh "curl -X PUT https://${curlCreds}${dbHost}:5984/_users"
+            sh "curl -X PUT http://${curlCreds}${dbHost}:5984/_users"
           }
           runTests(CONTAINER_ENV)
         }
