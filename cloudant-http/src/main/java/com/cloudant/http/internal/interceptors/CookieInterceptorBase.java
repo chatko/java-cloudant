@@ -33,6 +33,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.zip.GZIPInputStream;
 
 /**
  * Created by tomblench on 21/06/2017.
@@ -203,18 +204,18 @@ public abstract class CookieInterceptorBase implements HttpConnectionRequestInte
                 new OnExecuteCallable() {
                     @Override
                     public boolean call(HttpConnection connection) throws IOException {
-                        if (sessionHasStarted(connection.responseAsInputStream())) {
+
+                        if (sessionHasStarted("gzip".equals(connection.getConnection().getContentEncoding())?new GZIPInputStream(connection.getConnection().getInputStream()):connection.getConnection().getInputStream())) {
                             return storeCookiesFromResponse(connection.getConnection());
                         } else {
                             // If the session did not start, consume the error stream to avoid
                             // leaking connections.
-                            Utils.consumeAndCloseStream(connection.getConnection().getErrorStream
-                                    ());
-                            return false;
+                            Utils.consumeAndCloseStream(connection.getConnection().getErrorStream());
+                                return false;
                         }
                     }
                 }
-        );
+            );
     }
 
     private boolean sessionHasStarted(InputStream responseStream) throws IOException {

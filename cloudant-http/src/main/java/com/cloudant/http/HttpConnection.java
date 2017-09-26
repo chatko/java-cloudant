@@ -33,6 +33,7 @@ import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.LogManager;
 import java.util.logging.Logger;
+import java.util.zip.GZIPInputStream;
 
 
 /**
@@ -425,8 +426,8 @@ public class HttpConnection {
             throw new IOException("Attempted to read response from server before calling execute" +
                     "()");
         }
-        InputStream is = connection.getInputStream();
-        return is;
+        return "gzip".equals( connection.getContentEncoding() ) ? new GZIPInputStream( connection.getInputStream() ) : connection.getInputStream();
+
     }
 
     /**

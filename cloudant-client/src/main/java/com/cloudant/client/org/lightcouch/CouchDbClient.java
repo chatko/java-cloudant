@@ -472,6 +472,7 @@ public class CouchDbClient {
 
         // all CouchClient requests want to receive application/json responses
         connection.requestProperties.put("Accept", "application/json");
+        connection.requestProperties.put("Accept-Encoding", "gzip");
         connection.responseInterceptors.addAll(this.responseInterceptors);
         connection.requestInterceptors.addAll(this.requestInterceptors);
         InputStream es = null; // error stream - response from server for a 500 etc

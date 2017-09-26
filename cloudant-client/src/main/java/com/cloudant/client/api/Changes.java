@@ -85,6 +85,7 @@ public class Changes {
 
     private BufferedReader reader;
     private ChangesResult.Row nextRow;
+    private boolean longPoll = false;
     private boolean stop;
 
     Changes(CloudantClient client, Database database) {
@@ -148,11 +149,26 @@ public class Changes {
      * @return {@link ChangesResult} encapsulating the normal feed changes
      */
     public ChangesResult getChanges() {
-        final URI uri = this.databaseHelper.changesUri("feed", "normal");
+        final URI uri;
+        if (longPoll) {
+        	uri = this.databaseHelper.changesUri("feed", "longpoll");
+        } else {
+        	uri = this.databaseHelper.changesUri("feed", "normal");
+        }
         return client.get(uri, ChangesResult.class);
     }
 
     // Query Params
+
+    /**
+     * Use long poll feed type.
+     *
+     * @return this Changes instance
+     */
+    public Changes longPoll() {
+        longPoll = true;
+        return this;
+    }
 
     /**
      * Return only changes after the specified sequence identifier.
